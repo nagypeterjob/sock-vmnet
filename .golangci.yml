@@ -1,0 +1,42 @@
+run:
+  deadline: 1m
+  build-tags: [unit,integration]
+  modules-download-mode: mod
+  tests: false
+  skip-files: [vmnet.h,vmnet.m]
+
+linters:
+  enable-all: true # enable all linters and disable some one-by-one later on
+  disable:
+    - wsl 
+    - nlreturn 
+  # - prealloc
+    - nolintlint
+    - interfacer
+    - maligned
+    - scopelint
+    - tagliatelle
+    - golint
+    - gomnd
+    - nosnakecase
+    - gochecknoglobals
+
+linters-settings:
+  varnamelen:
+    ignore-names:
+      - n
+      - p
+      - l
+      - ok
+      - fd
+      - st
+  exhaustivestruct:
+    struct-patterns:
+      - "github.com/nagypeterjob/*"
+      - "github.com/nagypeterjob/*/*"
+      - "github.com/nagypeterjob/*/*"
+      - "github.com/nagypeterjob/*/*/*"
+      - "github.com/nagypeterjob/*/*/*/*"
+      - "github.com/nagypeterjob/*/*/*/*/*"
+      - "github.com/nagypeterjob/*/*/*/*/*/*"
+      - "github.com/nagypeterjob/*/*/*/*/*/*/*"
