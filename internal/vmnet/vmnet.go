@@ -76,7 +76,7 @@ const (
 	Disabled IsolationMode = false
 )
 
-// Need this global variable to pass through the C realm of vmnet,
+// Wee need to pass this global variable through the C realm of vmnet,
 // so that we can access fields & functions of the VMNet struct from packetsAvailable func.
 //
 // Read more: https://eli.thegreenplace.net/2019/passing-callbacks-and-pointers-to-cgo/
