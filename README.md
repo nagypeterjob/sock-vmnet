@@ -15,7 +15,7 @@ There are multiple network modes available for Apple's Virtualization framework 
 - Neither `softnet` nor `sock-vmnet` can compete with the superior TCP network performance of `VZNATNetworkDeviceAttachment` (at least beased on my benchmark). I am not sure if there is a huge difference when it comes to real life workloads.
 
 # Inspiration
-`sock-vmnet` is heavily inspired by [softnet](https://github.com/cirruslabs/softnet). Softnet is a beautiful piece of software, and I am really glad that `cirruslabs` made it Open Source. Apple is famously gatekeeping, their documentations tend to be poor and secretive. Softnet is a beacon in the dark that provides valuable insights that Apple should have provided in the first place. `softnet` implies a huge amount of domain knowledge and experince with macOS internals, which I can only admire. The goal of this repository is to (more-or-less) mimic what `softnet` does while maintaining similar performance, just in golang.
+`sock-vmnet` is heavily inspired by [softnet](https://github.com/cirruslabs/softnet). Softnet is a beautiful piece of software, and I am really glad that `cirruslabs` made it Open Source. Apple is famously gatekeeping, their documentations tend to be poor and secretive. Softnet is a beacon in the dark that provides valuable insights that Apple should have provided in the first place. `softnet` implies huge amounts of domain knowledge and experince with macOS internals, which I can only admire. The goal of this repository is to (more-or-less) mimic what `softnet` does while maintaining similar performance, just in golang.
 
 ## Other useful repositories
 - [qemu-vmnet](https://github.com/alessiodionisi/qemu-vmnet)
