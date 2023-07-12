@@ -25,16 +25,16 @@ func (s *Stack) read(ctx context.Context, conn net.Conn) {
 func (s *Stack) writeConn(conn net.Conn, rawBytes []byte) {
 	packet := gopacket.NewPacket(rawBytes, layers.LayerTypeEthernet, s.packetDecodeOptions)
 
+	if !allowedFromHost(&packet) {
+		log.Debug().Msg("frame not allowed from host")
+		return
+	}
+
 	layer := packet.Layer(layers.LayerTypeEthernet)
 	if eth, ok := layer.(*layers.Ethernet); ok {
 		if string(eth.DstMAC) == string(s.HardwareAddr) {
 			s.dm.inspect(&packet, s.gateway)
 		}
-	}
-
-	if !allowedFromHost(&packet) {
-		log.Debug().Msg("frame not allowed from host")
-		return
 	}
 
 	if _, err := conn.Write(rawBytes); err != nil {
@@ -54,14 +54,15 @@ func (s *Stack) writeConn(conn net.Conn, rawBytes []byte) {
 
 func allowedFromHost(packet *gopacket.Packet) bool {
 	var layer gopacket.Layer
-	// allow if ipv4 packet
-	layer = (*packet).Layer(layers.LayerTypeIPv4)
-	if _, ok := layer.(*layers.IPv4); ok {
-		return true
-	}
 	// allow if ARP packet
 	layer = (*packet).Layer(layers.LayerTypeARP)
 	if _, ok := layer.(*layers.ARP); ok {
+		return true
+	}
+
+	// allow if ipv4 packet
+	layer = (*packet).Layer(layers.LayerTypeIPv4)
+	if _, ok := layer.(*layers.IPv4); ok {
 		return true
 	}
 	return false

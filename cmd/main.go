@@ -41,9 +41,9 @@ func run(ctx context.Context) error {
 	flag.StringVar(&startAddr, "start-addr", "192.168.64.1", "")
 	flag.StringVar(&endAddr, "end-addr", "192.168.64.255", "")
 	flag.StringVar(&subnetMask, "subnet-mask", "255.255.255.0", "")
-	flag.BoolVar(&debug, "debug", true, "")
+	flag.BoolVar(&debug, "debug", false, "")
 
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	if debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}

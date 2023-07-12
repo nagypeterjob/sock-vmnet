@@ -72,6 +72,7 @@ type IsolationMode bool
 // If enabled, no VM <-> VM communication allowed
 // https://developer.apple.com/documentation/vmnet/vmnet_enable_isolation_key
 const (
+	// NOTE: might want to let the user define it via flags
 	Enabled  IsolationMode = true
 	Disabled IsolationMode = false
 )
@@ -80,6 +81,7 @@ const (
 // so that we can access fields & functions of the VMNet struct from packetsAvailable func.
 //
 // Read more: https://eli.thegreenplace.net/2019/passing-callbacks-and-pointers-to-cgo/
+// We could use something like this instead: https://github.com/mattn/go-pointer
 var vmnetPtr *VMNet
 
 type Params struct {
