@@ -9,7 +9,8 @@ There are multiple network modes available for Apple's Virtualization framework 
 ## What it doesn't solve?
 `sock-vmnet` doesn't try to solve the dhcp exhaustion problem dhcpd/bootpd(8) has.
 
-### Caveats
+### Caveats
+
 - `sock-vmnet` needs to run as root. As an alternative, you could ask for an [entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_vm_networking) from Apple.
 - Altough it was load and performance tested thoroughly, `sock-vmnet` was never used in production.
 - Neither `softnet` nor `sock-vmnet` can compete with the superior TCP network performance of `VZNATNetworkDeviceAttachment` (at least beased on my benchmark). I am not sure if there is a huge difference when it comes to real life workloads.
