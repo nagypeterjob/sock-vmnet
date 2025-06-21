@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"os/user"
 	"strconv"
+	"syscall"
 
-	"github.com/nagypeterjob/sock-vmnet/internal/stack"
+	"github.com/nagypeterjob/sock-vmnet/internal/network"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"inet.af/netaddr"
@@ -62,7 +64,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("parsing provided MAC address: %w", err)
 	}
 
-	st, err := stack.NewNetwork(stack.NetworkParams{
+	st, err := network.New(network.Params{
 		Fd:           fdInt,
 		HardwareAddr: hardwareAddr,
 		StartAddr:    netaddr.MustParseIP(startAddr),
@@ -74,7 +76,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating proxy: %w", err)
 	}
 
-	if err := st.Run(ctx); err != nil {
+	if err := st.Run(ctx, dropPrivileges); err != nil {
 		return fmt.Errorf("running proxy: %w", err)
 	}
 
@@ -84,10 +86,9 @@ func run(ctx context.Context) error {
 // exit on signal.
 func newCancelableContext() context.Context {
 	doneCh := make(chan os.Signal, 1)
-	signal.Notify(doneCh, os.Interrupt)
+	signal.Notify(doneCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, os.Interrupt)
 
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		<-doneCh
@@ -96,4 +97,29 @@ func newCancelableContext() context.Context {
 	}()
 
 	return ctx
+}
+
+func dropPrivileges() error {
+	// TODO:
+	u, err := user.Lookup("peternagy")
+	if err != nil {
+		return fmt.Errorf("lookup user: %v", err)
+	}
+
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return fmt.Errorf("parse uid: %v", err)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return fmt.Errorf("parse gid: %v", err)
+	}
+
+	if err := syscall.Setgid(gid); err != nil {
+		return fmt.Errorf("setgid: %v", err)
+	}
+	if err := syscall.Setuid(uid); err != nil {
+		return fmt.Errorf("setuid: %v", err)
+	}
+	return nil
 }

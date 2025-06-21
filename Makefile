@@ -1,6 +1,7 @@
 .PHONY: build
 build:
 	go build -o build/sock-vmnet cmd/main.go
+	sudo chown root build/sock-vmnet && sudo chmod u+s build/sock-vmnet
 
 test:
 	go test -tags unit -v -race -cover ./...

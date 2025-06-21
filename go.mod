@@ -1,6 +1,6 @@
 module github.com/nagypeterjob/sock-vmnet
 
-go 1.20
+go 1.24
 
 require (
 	github.com/google/gopacket v1.1.19

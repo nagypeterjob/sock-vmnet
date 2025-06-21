@@ -6,7 +6,10 @@ package vmnet
 import "C"
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
@@ -88,6 +91,7 @@ type Params struct {
 	StartAddr  netaddr.IP
 	EndAddr    netaddr.IP
 	SubnetMask netaddr.IP
+	MacAddr    net.HardwareAddr
 	Debug      bool
 }
 
@@ -122,19 +126,19 @@ func New(p Params) *VMNet {
 	}
 }
 
-func (v *VMNet) Start() error {
+func (v *VMNet) Start(ctx context.Context) error {
 	startAddr := C.CString(v.StartAddr.String())
 	endAddr := C.CString(v.EndAddr.String())
 	subnetMask := C.CString(v.SubnetMask.String())
+	macAddr := C.CString(v.MacAddr.String())
 
-	defer C.free(unsafe.Pointer(startAddr))
-	defer C.free(unsafe.Pointer(endAddr))
-	defer C.free(unsafe.Pointer(subnetMask))
-
-	// Create the interface. From this point, ifconfig will show both bridge100 and vmenet<n> interfaces.
+	// Create the interface. From this point, ifconfig will show both bridge100 and vmnet<n> interfaces.
 	errCode := C._vmnet_start(&v.iface, &v.mps, &v.mtu,
-		startAddr, endAddr, subnetMask, C.uint32_t(Shared), C.bool(Enabled), C.bool(v.Debug))
+		startAddr, endAddr, subnetMask, macAddr,
+		C.uint32_t(Shared), C.bool(Enabled), C.bool(v.Debug),
+	)
 	if errCode != successCode || v.iface == nil {
+		fmt.Println(errCode)
 		return maptoErr(int(errCode))
 	}
 
@@ -144,6 +148,11 @@ func (v *VMNet) Start() error {
 
 	// set the global pointer to the current state of self
 	vmnetPtr = v
+
+	C.free(unsafe.Pointer(startAddr))
+	C.free(unsafe.Pointer(endAddr))
+	C.free(unsafe.Pointer(subnetMask))
+	C.free(unsafe.Pointer(macAddr))
 
 	return nil
 }
@@ -160,18 +169,21 @@ func (v *VMNet) read() ([]byte, error) {
 	var cBytes unsafe.Pointer
 	var cBytesLen C.ulong
 
-	// The C code performs the memory deallocation of cBytes, no need to call C.free here.
 	if errCode := C._vmnet_read(v.iface, v.mps, &cBytes, &cBytesLen); errCode != successCode {
 		return nil, maptoErr(int(errCode))
 	}
-	return C.GoBytes(cBytes, C.int(cBytesLen)), nil
+
+	b := C.GoBytes(cBytes, C.int(cBytesLen))
+	C.free(cBytes)
+	return b, nil
 }
 
 func (v *VMNet) Write(p []byte) (int, error) {
-	// The C code performs the memory deallocation of cBytes, no need to call C.free here.
-	if errCode := C._vmnet_write(v.iface, C.CBytes(p), C.ulong(len(p))); errCode != successCode {
+	cBytes := C.CBytes(p)
+	if errCode := C._vmnet_write(v.iface, cBytes, C.ulong(len(p))); errCode != successCode {
 		return 0, maptoErr(int(errCode))
 	}
+	C.free(cBytes)
 	return len(p), nil
 }
 
@@ -191,7 +203,11 @@ func packetsAvailable(eventType uint32, pckAvailable uint64) {
 				log.Error().Err(err).Msg("reading vmnet")
 				// go about our bussiness
 			}
-			vmnetPtr.Event <- bytes
+			select {
+			case vmnetPtr.Event <- bytes:
+			default:
+				log.Warn().Err(err).Msg("nothing burger")
+			}
 		}
 	}
 }
