@@ -16,8 +16,8 @@ func (s *Network) read(ctx context.Context, conn net.Conn) {
 		select {
 		case <-ctx.Done():
 			return
-		case bytes := <-s.vmnet.Event:
-			s.writeConn(conn, bytes)
+		case pkt := <-s.vmnet.Event:
+			s.writeConn(conn, pkt)
 		}
 	}
 }

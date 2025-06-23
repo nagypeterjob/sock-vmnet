@@ -118,14 +118,14 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
           vmnet_mac_address_key
         ));
 
-        printf("/////////////////VMNET/////////////////\n");
-        printf("/// Start address:   %s  ///\n", vmnet_dhcp_range_start);
-        printf("/// End address:     %s  ///\n", vmnet_dhcp_range_end);
-        printf("/// Subnet mask:     %s  ///\n", vmnet_subnet_mask);
-        printf("/// MAC:             %s  ///\n", vmnet_mac_addr);
-        printf("/// MTU:             %d  ///\n", (int)vmnet_mtu_size);
-        printf("/// Max packet size: %d  ///\n", (int)vmnet_max_packet_size);
-        printf("///////////////////////////////////////\n");
+        printf("/////////////////VMNET////////////////////\n");
+        printf("/// Start address:   %s      ///\n", vmnet_dhcp_range_start);
+        printf("/// End address:     %s    ///\n", vmnet_dhcp_range_end);
+        printf("/// Subnet mask:     %s     ///\n", vmnet_subnet_mask);
+        printf("/// MAC:             %s ///\n", vmnet_mac_addr);
+        printf("/// MTU:             %d              ///\n", (int)vmnet_mtu_size);
+        printf("/// Max packet size: %d              ///\n", (int)vmnet_max_packet_size);
+        printf("//////////////////////////////////////////\n");
 
         free((char*)vmnet_dhcp_range_start);
         free((char*)vmnet_dhcp_range_end);
@@ -223,28 +223,27 @@ int _vmnet_write(interface_ref interface, void *bytes, size_t bytes_size) {
   return status;
 }
 
-int _vmnet_read(interface_ref interface, uint64_t max_packet_size, void **bytes, size_t *bytes_size) {
+int _vmnet_read(
+  interface_ref interface,
+  uint64_t max_packet_size,
+  void *buffer,
+  size_t buffer_size,
+  size_t *out_packets_read
+) {
   struct iovec packets_iovec = {
-    .iov_base = malloc(max_packet_size),
-    .iov_len = max_packet_size,
+      .iov_base = buffer,
+      .iov_len = buffer_size,
   };
-
   struct vmpktdesc packets = {
-    .vm_pkt_size = max_packet_size,
-    .vm_pkt_iov = &packets_iovec,
-    .vm_pkt_iovcnt = 1,
-    .vm_flags = 0,
+      .vm_pkt_size = buffer_size,
+      .vm_pkt_iov = &packets_iovec,
+      .vm_pkt_iovcnt = 1,
+      .vm_flags = 0,
   };
 
   int packets_count = 1;
   vmnet_return_t status = vmnet_read(interface, &packets, &packets_count);
-
-  *bytes = packets.vm_pkt_iov->iov_base;
-  *bytes_size = packets.vm_pkt_size;
-
-  if (packets_count < 1) {
-    return errPacketCountZero;
-  }
+  *out_packets_read = packets.vm_pkt_size;
 
   return status;
 }

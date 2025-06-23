@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
@@ -118,6 +119,12 @@ type VMNet struct {
 	mtu C.ulonglong
 }
 
+var BufferPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 65535)
+	},
+}
+
 func New(p Params) *VMNet {
 	return &VMNet{
 		Params: p,
@@ -166,16 +173,18 @@ func (v *VMNet) Stop() error {
 }
 
 func (v *VMNet) read() ([]byte, error) {
-	var cBytes unsafe.Pointer
+	buffer := BufferPool.Get().([]byte)
 	var cBytesLen C.ulong
 
-	if errCode := C._vmnet_read(v.iface, v.mps, &cBytes, &cBytesLen); errCode != successCode {
+	if errCode := C._vmnet_read(
+		v.iface,
+		v.mps,
+		unsafe.Pointer(&buffer[0]),
+		C.ulong(len(buffer)), &cBytesLen,
+	); errCode != successCode {
 		return nil, maptoErr(int(errCode))
 	}
-
-	b := C.GoBytes(cBytes, C.int(cBytesLen))
-	C.free(cBytes)
-	return b, nil
+	return buffer[:cBytesLen], nil
 }
 
 func (v *VMNet) Write(p []byte) (int, error) {
