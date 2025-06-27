@@ -32,18 +32,6 @@ type Params struct {
 	SubnetMask netaddr.IP
 }
 
-// Represents a dhcpd lease, e.g:
-//
-// $ cat /var/db/dhcpd_leases
-//
-//	{
-//		name=virtualmachine
-//		ip_address=192.168.64.2
-//		hw_address=1,5e:8b:78:73:78:14
-//		identifier=1,5e:8b:78:73:78:14
-//		lease=0x64a5f04b
-//	}
-
 // Network orchestrates the duplex socket communication
 type Network struct {
 	// Network parameters passed to vmnet
@@ -52,7 +40,7 @@ type Network struct {
 	dm dhcpManager
 
 	// Gateway IP
-	gateway netaddr.IP
+	gateway net.IP
 
 	// Represents the vmnet API
 	vmnet *vmnet.VMNet
@@ -70,12 +58,10 @@ type Network struct {
 //
 // - bridge100 interface
 func New(p Params) (*Network, error) {
-	// First IP of the range is reserved for the gateway
-	gateway := p.StartAddr
-
 	return &Network{
-		Params:  p,
-		gateway: gateway,
+		Params: p,
+		// First IP of the range is reserved for the gateway
+		gateway: net.ParseIP(p.StartAddr.String()),
 		dm: dhcpManager{
 			lease: lease{},
 		},
@@ -92,20 +78,20 @@ func New(p Params) (*Network, error) {
 }
 
 // Run the networking stack.
-func (s *Network) Run(ctx context.Context, callback func() error) error {
+func (n *Network) Run(ctx context.Context, callback func() error) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// New FileConn from the socket's file descriptor
 	// From this point we can Read/Write the socket as with any net.Conn impl.
-	conn, err := fileConn(s.Fd)
+	conn, err := fileConn(n.Fd)
 	if err != nil {
 		return fmt.Errorf("opening file connection: %w", err)
 	}
 	defer conn.Close()
 
-	// Start vmnet operations
-	if err := s.vmnet.Start(runCtx); err != nil {
+	// Start vmnet interface
+	if err := n.vmnet.Start(runCtx); err != nil {
 		return fmt.Errorf("starting interface: %w", err)
 	}
 
@@ -115,12 +101,12 @@ func (s *Network) Run(ctx context.Context, callback func() error) error {
 
 	defer func() {
 		log.Info().Msg("Stopping vmnet")
-		s.vmnet.Stop()
+		n.vmnet.Stop()
 	}()
 
 	// read & write vmnet
-	go s.read(runCtx, conn)
-	go s.write(runCtx, conn)
+	go n.VMNETToGuest(runCtx, conn)
+	go n.guestToVMNET(runCtx, conn)
 
 	<-runCtx.Done()
 

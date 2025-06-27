@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -11,13 +12,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (s *Network) read(ctx context.Context, conn net.Conn) {
+func (s *Network) VMNETToGuest(ctx context.Context, conn net.Conn) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case pkt := <-s.vmnet.Event:
-			s.writeConn(conn, pkt)
+		case pkts, ok := <-s.vmnet.Event:
+			if !ok {
+				return
+			}
+			for _, pkt := range pkts {
+				// TODO: bubble up errors?
+				s.writeConn(conn, pkt)
+			}
 		}
 	}
 }
@@ -32,38 +39,31 @@ func (s *Network) writeConn(conn net.Conn, rawBytes []byte) {
 
 	layer := packet.Layer(layers.LayerTypeEthernet)
 	if eth, ok := layer.(*layers.Ethernet); ok {
-		if string(eth.DstMAC) == string(s.HardwareAddr) {
+		if bytes.Equal(eth.DstMAC, s.HardwareAddr) {
 			s.dm.inspect(&packet, s.gateway)
 		}
 	}
 
 	if _, err := conn.Write(rawBytes); err != nil {
-		if errors.Is(err, net.ErrClosed) {
-			log.Debug().Msg("socket is already closed")
+		switch {
+		case errors.Is(err, net.ErrClosed):
+			log.Error().Msg("socket is already closed for write")
 			return
-		}
-
-		if errors.Is(err, syscall.ENOBUFS) {
-			log.Debug().Msg("write socket buffer is full")
+		case errors.Is(err, syscall.ENOBUFS):
+			log.Error().Msg("write socket buffer is full")
 			return
+		default:
+			log.Error().Err(err).Msg("writing to connection")
 		}
-
-		log.Error().Err(err).Msg("writing to connection")
 	}
 }
 
 func allowedFromHost(packet *gopacket.Packet) bool {
-	var layer gopacket.Layer
-	// allow if ARP packet
-	layer = (*packet).Layer(layers.LayerTypeARP)
-	if _, ok := layer.(*layers.ARP); ok {
+	// allow if ARP and IPv4 packets
+	if (*packet).Layer(layers.LayerTypeARP) != nil ||
+		(*packet).Layer(layers.LayerTypeIPv4) != nil {
 		return true
 	}
 
-	// allow if ipv4 packet
-	layer = (*packet).Layer(layers.LayerTypeIPv4)
-	if _, ok := layer.(*layers.IPv4); ok {
-		return true
-	}
 	return false
 }

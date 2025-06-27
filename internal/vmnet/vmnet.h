@@ -13,8 +13,10 @@ int _vmnet_read(
   interface_ref interface,
   uint64_t max_packet_size,
   void *buffer,
-  size_t buffer_size,
-  size_t *out_packets_read
+  size_t packet_size,
+  int packets_count,
+  int *out_packets_read,
+  size_t *out_sizes
 );
 extern void packetsAvailable(uint32_t eventType, uint64_t packetCount);
 

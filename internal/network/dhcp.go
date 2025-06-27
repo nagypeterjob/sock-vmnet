@@ -2,6 +2,7 @@
 package network
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -21,6 +22,20 @@ const (
 	dhcpBroadcastPort = 68
 )
 
+var emptyIP netaddr.IP
+
+// Represents a dhcpd lease, e.g:
+//
+// $ cat /var/db/dhcpd_leases
+//
+//	{
+//		name=virtualmachine
+//		ip_address=192.168.64.2
+//		hw_address=1,5e:8b:78:73:78:14
+//		identifier=1,5e:8b:78:73:78:14
+//		lease=0x64a5f04b
+//	}
+
 type lease struct {
 	// IP address offered by dhcp
 	addr netaddr.IP
@@ -39,7 +54,7 @@ type dhcpManager struct {
 }
 
 // Determine if packet is dhcp packet
-func (d *dhcpManager) inspect(packet *gopacket.Packet, gateway netaddr.IP) {
+func (d *dhcpManager) inspect(packet *gopacket.Packet, gateway net.IP) {
 	var layer gopacket.Layer
 
 	// is it an ipv4 packet?
@@ -53,7 +68,7 @@ func (d *dhcpManager) inspect(packet *gopacket.Packet, gateway netaddr.IP) {
 	}
 
 	// is the packet coming from the gateway?
-	if pkt.SrcIP.String() != gateway.String() {
+	if !pkt.SrcIP.Equal(gateway) {
 		return
 	}
 
@@ -104,6 +119,9 @@ func (d *dhcpManager) parseDhcpLease(packet *gopacket.Packet) {
 			d.lease.validUntil = time.Now().Add(time.Second * time.Duration(leaseTime))
 		}
 
+		if len(opt.Data) == 0 {
+			continue
+		}
 		switch layers.DHCPMsgType(opt.Data[0]) {
 		case layers.DHCPMsgTypeOffer:
 			log.Debug().Msgf("dhcp: offered IP address is: %s", dhcp.YourClientIP.String())
@@ -116,10 +134,14 @@ func (d *dhcpManager) parseDhcpLease(packet *gopacket.Packet) {
 }
 
 func (d *dhcpManager) validIPAddress(addr netaddr.IP) bool {
+	d.m.Lock()
+	defer d.m.Unlock()
 	return d.lease.addr == addr && time.Now().Before(d.lease.validUntil)
 }
 
 func (d *dhcpManager) validDNSTarget(destination netaddr.IP) bool {
+	d.m.Lock()
+	defer d.m.Unlock()
 	for _, ip := range d.lease.dnsServers {
 		if destination == ip {
 			return true
@@ -131,12 +153,15 @@ func (d *dhcpManager) validDNSTarget(destination netaddr.IP) bool {
 func (d *dhcpManager) hasLeases() bool {
 	d.m.Lock()
 	defer d.m.Unlock()
-	return d.lease.addr != netaddr.IP{}
+	return d.lease.addr != emptyIP
 }
 
 // taken from:
 // https://github.com/google/gopacket/blob/32ee38206866f44a74a6033ec26aeeb474506804/layers/dhcpv4.go#L516C2-L517
 func parseLeaseTimeBytes(data []byte) int {
+	if len(data) < 4 {
+		return 0
+	}
 	return int(uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3]))
 }
 
@@ -153,12 +178,10 @@ func validDHCPReply(pkt *layers.UDP) bool {
 }
 
 func parseDNSAddresses(data []byte) []netaddr.IP {
-	ips := make([]netaddr.IP, 0)
 	num := len(data) / 4
-	j := 0
+	ips := make([]netaddr.IP, num)
 	for i := 0; i < num; i++ {
-		ips = append(ips, netaddr.IPv4(data[j], data[j+1], data[j+2], data[j+3]))
-		j += 4
+		ips = append(ips, netaddr.IPv4(data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]))
 	}
 	return ips
 }

@@ -227,23 +227,29 @@ int _vmnet_read(
   interface_ref interface,
   uint64_t max_packet_size,
   void *buffer,
-  size_t buffer_size,
-  size_t *out_packets_read
+  size_t packet_size,
+  int packets_count,
+  int *out_packets_read,
+  size_t *out_sizes
 ) {
-  struct iovec packets_iovec = {
-      .iov_base = buffer,
-      .iov_len = buffer_size,
-  };
-  struct vmpktdesc packets = {
-      .vm_pkt_size = buffer_size,
-      .vm_pkt_iov = &packets_iovec,
-      .vm_pkt_iovcnt = 1,
-      .vm_flags = 0,
-  };
+  struct vmpktdesc packets[packets_count];
+  struct iovec iovecs[packets_count];
 
-  int packets_count = 1;
-  vmnet_return_t status = vmnet_read(interface, &packets, &packets_count);
-  *out_packets_read = packets.vm_pkt_size;
+  uint8_t *base = (uint8_t*)buffer;
+  for (int i = 0; i < packets_count; i++) {
+    iovecs[i].iov_base = base + i * packet_size;
+    iovecs[i].iov_len  = packet_size;
+    packets[i].vm_pkt_size = packet_size;
+    packets[i].vm_pkt_iov = &iovecs[i];
+    packets[i].vm_pkt_iovcnt = 1;
+    packets[i].vm_flags = 0;
+  }
 
+  int count = packets_count;
+  vmnet_return_t status = vmnet_read(interface, packets, &count);
+  *out_packets_read = count;
+  for (int i = 0; i < count; i++) {
+    out_sizes[i] = packets[i].vm_pkt_size;
+  }
   return status;
 }

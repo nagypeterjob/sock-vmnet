@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -14,30 +15,32 @@ import (
 
 var broadcastIP = netaddr.IPv4(255, 255, 255, 255)
 
-func (s *Network) write(ctx context.Context, conn net.Conn) {
-	bytes := make([]byte, s.vmnet.MaxPacketSize)
+// Read packets coming from guest & forward them to the VMNET interface
+// if they pass the filtering rules
+func (s *Network) guestToVMNET(ctx context.Context, conn net.Conn) {
+	buf := make([]byte, s.vmnet.MaxPacketSize)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			n, err := conn.Read(bytes)
+			n, err := conn.Read(buf)
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					log.Error().Msg("socket is already closed")
+				switch {
+				case errors.Is(err, net.ErrClosed):
+					log.Error().Msg("socket is already closed for read")
 					return
-				}
-
-				if errors.Is(err, syscall.ENOBUFS) {
+				case errors.Is(err, syscall.ENOBUFS):
 					log.Error().Err(err).Msgf("read socket buffer is full")
 					return
+				default:
+					log.Error().Err(err).Msgf("reading from")
+					continue
 				}
-
-				log.Error().Err(err).Msgf("reading from")
-				continue
 			}
 
-			s.preparePacket(bytes[:n])
+			s.preparePacket(buf[:n])
 		}
 	}
 }
@@ -48,7 +51,7 @@ func (s *Network) preparePacket(rawBytes []byte) {
 
 	if eth, ok := layer.(*layers.Ethernet); ok {
 		// It doesn't come from our VM
-		if string(eth.SrcMAC) != string(s.HardwareAddr) {
+		if !bytes.Equal(eth.SrcMAC, s.HardwareAddr) {
 			return
 		}
 	}
@@ -64,8 +67,7 @@ func (s *Network) preparePacket(rawBytes []byte) {
 }
 
 func (s *Network) allowedFromVM(packet *gopacket.Packet) bool {
-	var layer gopacket.Layer
-	layer = (*packet).Layer(layers.LayerTypeIPv4)
+	layer := (*packet).Layer(layers.LayerTypeIPv4)
 	if ip, ok := layer.(*layers.IPv4); ok {
 		if s.allowIPv4(packet, ip) {
 			return true
@@ -103,7 +105,7 @@ func (s *Network) allowIPv4(packet *gopacket.Packet, ipPkt *layers.IPv4) bool {
 		}
 	}
 
-	if ipPkt.DstIP.String() == s.gateway.String() {
+	if ipPkt.DstIP.Equal(s.gateway) {
 		return true
 	}
 
