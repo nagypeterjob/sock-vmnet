@@ -14,10 +14,7 @@ jobs:
           sudo apt-get update
           sudo apt-get upgrade
           sudo apt-get install vim
-      - name: test
-        run: |
-          TOKEN=$(curl -fsS -u "x-token:$DEPOT_TOKEN" "https://api.depot.dev/auth/registry/token?service=p0tpj7swlt.registry.depot.dev&scope=repository:test:pull,push&scope=repository:library.registry.depot.dev/base:pull" | jq -r .token)
-          echo "$TOKEN" | cut -d. -f2 | python3 -c 'import base64,json,sys; s=sys.stdin.read().strip();s+="="*(-len(s)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(s)), indent=2))'
+          docker install alpine
 
       - uses: depot/snapshot-action@v1.1.2
         env:
