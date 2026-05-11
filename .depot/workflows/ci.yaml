@@ -19,7 +19,7 @@ jobs:
           echo ${{ secrets.SNAPSHOT_TOKEN }} > /tmp/snapshot_token
           head -c 15 /tmp/snapshot_token 
 
-      - uses: depot/snapshot-action@v1
+      - uses: depot/snapshot-action@v1.1.2
         env:
           REGISTRY_USERNAME: x-token
           REGISTRY_PASSWORD: ${{ secrets.SNAPSHOT_TOKEN }}
