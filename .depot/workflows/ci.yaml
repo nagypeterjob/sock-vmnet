@@ -6,19 +6,19 @@ jobs:
   benchmark:
     name: cache dependencies
     runs-on:
-      # image: p0tpj7swlt.registry.depot.dev/test:snapshot2
-      # size: 2x8
+      image: p0tpj7swlt.registry.depot.dev/test:snapshot
+      size: 2x8
     steps:
       - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
-          docker pull alpine
-          # docker images
+          #docker pull alpine
+          docker images
 
-      - uses: depot/snapshot-action@v1
-        env:
-          REGISTRY_USERNAME: x-token
-          REGISTRY_PASSWORD: $DEPOT_TOKEN
-        with:
-          image: p0tpj7swlt.registry.depot.dev/test:snapshot
+      #- uses: depot/snapshot-action@v1
+      #  env:
+      #    REGISTRY_USERNAME: x-token
+      #    REGISTRY_PASSWORD: $DEPOT_TOKEN
+      #  with:
+      #    image: p0tpj7swlt.registry.depot.dev/test:snapshot
