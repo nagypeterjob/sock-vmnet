@@ -15,7 +15,7 @@ jobs:
           sudo apt-get install vim
           vim --version || true
           docker pull alpine
-          docker install php
+          docker pull php
           docker images
 
       - uses: depot/snapshot-action@v1
