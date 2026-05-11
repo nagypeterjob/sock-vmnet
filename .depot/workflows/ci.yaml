@@ -16,7 +16,7 @@ jobs:
           sudo apt-get install vim
           docker pull alpine
 
-      - uses: depot/snapshot-action@v1.1.2
+      - uses: depot/snapshot-action@v1
         env:
           REGISTRY_USERNAME: x-token
           REGISTRY_PASSWORD: $DEPOT_TOKEN
