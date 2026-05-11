@@ -5,20 +5,22 @@ on: push
 jobs:
   benchmark:
     name: cache dependencies
-    runs-on:
-      image: p0tpj7swlt.registry.depot.dev/test:snapshot
-      size: 2x8
+    runs-on: depot-ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
-          #docker pull alpine
+          sudo apt-get update
+          sudo apt-get install vim
+          vim --version || true
+          docker pull alpine
+          docker install php
           docker images
 
-      #- uses: depot/snapshot-action@v1
-      #  env:
-      #    REGISTRY_USERNAME: x-token
-      #    REGISTRY_PASSWORD: $DEPOT_TOKEN
-      #  with:
-      #    image: p0tpj7swlt.registry.depot.dev/test:snapshot
+      - uses: depot/snapshot-action@v1
+        env:
+          REGISTRY_USERNAME: x-token
+          REGISTRY_PASSWORD: $DEPOT_TOKEN
+        with:
+          image: p0tpj7swlt.registry.depot.dev/test:snapshot2
