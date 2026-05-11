@@ -14,7 +14,7 @@ jobs:
           sudo apt-get update
           sudo apt-get upgrade
           sudo apt-get install vim
-          docker install alpine
+          docker pull alpine
 
       - uses: depot/snapshot-action@v1.1.2
         env:
