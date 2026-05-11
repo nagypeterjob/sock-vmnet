@@ -16,9 +16,12 @@ jobs:
           sudo apt-get install vim
       - name: test
         run: |
-          echo ${{ secrets.SNAPSHOT_TOKEN }} > /tmp/snapshot_token
-          head -c 15 /tmp/snapshot_token 
+          TOKEN=$(curl -fsS -u "x-token:$DEPOT_TOKEN" "https://api.depot.dev/auth/registry/token?service=p0tpj7swlt.registry.depot.dev&scope=repository:test:pull,push&scope=repository:library.registry.depot.dev/base:pull" | jq -r .token)
+          echo "$TOKEN" | cut -d. -f2 | python3 -c 'import base64,json,sys; s=sys.stdin.read().strip();s+="="*(-len(s)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(s)), indent=2))'
 
       - uses: depot/snapshot-action@v1.1.2
+        env:
+          REGISTRY_USERNAME: x-token
+          REGISTRY_PASSWORD: $DEPOT_TOKEN
         with:
           image: p0tpj7swlt.registry.depot.dev/test:snapshot
