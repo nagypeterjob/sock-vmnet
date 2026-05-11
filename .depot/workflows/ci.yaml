@@ -1,0 +1,23 @@
+name: test snapshot
+
+on: push
+
+jobs:
+  benchmark:
+    name: cache dependencies
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get upgrade
+          sudo apt-get install vim
+
+      - uses: depot/snapshot-action@v1
+        env:
+          REGISTRY_USERNAME: x-token
+          REGISTRY_PASSWORD: ${{ secrets.SNAPSHOT_TOKEN }}
+        with:
+          image: p0tpj7swlt.registry.depot.dev/test:snapshot
