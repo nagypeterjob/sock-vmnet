@@ -17,7 +17,7 @@ jobs:
       - name: test
         run: |
           echo ${{ secrets.SNAPSHOT_TOKEN }} > /tmp/snapshot_token
-          head -c 5 /tmp/snapshot_token 
+          head -c 15 /tmp/snapshot_token 
 
       - uses: depot/snapshot-action@v1
         env:
