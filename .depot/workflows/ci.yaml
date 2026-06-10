@@ -3,22 +3,17 @@ name: test snapshot
 on: push
 
 jobs:
-  benchmark:
-    name: cache dependencies
-    runs-on:
-      image: p0tpj7swlt.registry.depot.dev/test:snapshot2
-      size: 2x8
+  test:
+    name: run cache disk test
+    runs-on: depot-ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Install dependencies
+      - uses: depot/cache-mount@v1
+        with:
+          path: /tmp/cache-mount
+          name: test-disk
+      - name: list cache
         run: |
-          # sudo apt-get update
-          # sudo apt-get install vim
-          vim --version || true
-          # docker pull alpine
-          # docker pull php
-          docker images
+          ls -la /tmp/cache-mount
 
       #- uses: depot/snapshot-action@v1
       #  env:
