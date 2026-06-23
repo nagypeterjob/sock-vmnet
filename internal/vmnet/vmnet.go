@@ -6,7 +6,11 @@ package vmnet
 import "C"
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
+	"sync"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
@@ -55,6 +59,12 @@ func maptoErr(code int) error {
 	return err
 }
 
+// batchSize is the maximum amount of packets we read
+// from the VMNET interface at once.
+// Each read/write call allows up to 200 packets to be read or written
+// for a maximum of 256KB. Each packet written should be a complete ethernet frame.
+const batchSize = 200
+
 type OperationMode C.uint32_t
 
 // https://developer.apple.com/documentation/vmnet/operating_modes_t
@@ -88,6 +98,7 @@ type Params struct {
 	StartAddr  netaddr.IP
 	EndAddr    netaddr.IP
 	SubnetMask netaddr.IP
+	MacAddr    net.HardwareAddr
 	Debug      bool
 }
 
@@ -104,7 +115,7 @@ type VMNet struct {
 	// By listening on VMNET_INTERFACE_PACKETS_AVAILABLE events, the registered callback
 	// notifes us that the interface is readable. The read packes are being passed to the Even chan.
 	// See packetsAvailable for more.
-	Event chan []byte
+	Event chan [][]byte
 
 	// CGO representation of the VMNet interface
 	iface C.interface_ref
@@ -114,27 +125,29 @@ type VMNet struct {
 	mtu C.ulonglong
 }
 
+var BufferPool sync.Pool
+
 func New(p Params) *VMNet {
 	return &VMNet{
 		Params: p,
 		// I found the 100 buffer size to be optimal performance wise
-		Event: make(chan []byte, 100),
+		Event: make(chan [][]byte, 100),
 	}
 }
 
-func (v *VMNet) Start() error {
+func (v *VMNet) Start(ctx context.Context) error {
 	startAddr := C.CString(v.StartAddr.String())
 	endAddr := C.CString(v.EndAddr.String())
 	subnetMask := C.CString(v.SubnetMask.String())
+	macAddr := C.CString(v.MacAddr.String())
 
-	defer C.free(unsafe.Pointer(startAddr))
-	defer C.free(unsafe.Pointer(endAddr))
-	defer C.free(unsafe.Pointer(subnetMask))
-
-	// Create the interface. From this point, ifconfig will show both bridge100 and vmenet<n> interfaces.
+	// Create the interface. From this point, ifconfig will show both bridge100 and vmnet<n> interfaces.
 	errCode := C._vmnet_start(&v.iface, &v.mps, &v.mtu,
-		startAddr, endAddr, subnetMask, C.uint32_t(Shared), C.bool(Enabled), C.bool(v.Debug))
+		startAddr, endAddr, subnetMask, macAddr,
+		C.uint32_t(Shared), C.bool(Enabled), C.bool(v.Debug),
+	)
 	if errCode != successCode || v.iface == nil {
+		fmt.Println(errCode)
 		return maptoErr(int(errCode))
 	}
 
@@ -144,6 +157,17 @@ func (v *VMNet) Start() error {
 
 	// set the global pointer to the current state of self
 	vmnetPtr = v
+	BufferPool = sync.Pool{
+		New: func() any {
+			b := make([]byte, batchSize*v.MaxPacketSize)
+			return &b
+		},
+	}
+
+	C.free(unsafe.Pointer(startAddr))
+	C.free(unsafe.Pointer(endAddr))
+	C.free(unsafe.Pointer(subnetMask))
+	C.free(unsafe.Pointer(macAddr))
 
 	return nil
 }
@@ -156,22 +180,45 @@ func (v *VMNet) Stop() error {
 	return nil
 }
 
-func (v *VMNet) read() ([]byte, error) {
-	var cBytes unsafe.Pointer
-	var cBytesLen C.ulong
+func (v *VMNet) read(nPkt int) ([][]byte, error) {
+	buffer := BufferPool.Get().(*[]byte)
+	if cap(*buffer) < batchSize*v.MaxPacketSize {
+		tmp := make([]byte, batchSize*v.MaxPacketSize)
+		buffer = &tmp
+	}
+	*buffer = (*buffer)[:batchSize*v.MaxPacketSize]
+	cPktSizes := make([]C.size_t, nPkt)
+	var cPktCount C.int
 
-	// The C code performs the memory deallocation of cBytes, no need to call C.free here.
-	if errCode := C._vmnet_read(v.iface, v.mps, &cBytes, &cBytesLen); errCode != successCode {
+	if errCode := C._vmnet_read(
+		v.iface,
+		v.mps,
+		unsafe.Pointer(&(*buffer)[0]),
+		C.size_t(v.MaxPacketSize),
+		C.int(nPkt),
+		&cPktCount,
+		(*C.size_t)(unsafe.Pointer(&cPktSizes[0])),
+	); errCode != successCode {
 		return nil, maptoErr(int(errCode))
 	}
-	return C.GoBytes(cBytes, C.int(cBytesLen)), nil
+	n := int(cPktCount)
+	// TODO: cache
+	out := make([][]byte, 0, n)
+	for i := 0; i < n; i++ {
+		pkt := make([]byte, int(cPktSizes[i]))
+		copy(pkt, (*buffer)[i*v.MaxPacketSize:i*v.MaxPacketSize+int(cPktSizes[i])])
+		out = append(out, pkt)
+	}
+	BufferPool.Put(buffer)
+	return out, nil
 }
 
 func (v *VMNet) Write(p []byte) (int, error) {
-	// The C code performs the memory deallocation of cBytes, no need to call C.free here.
-	if errCode := C._vmnet_write(v.iface, C.CBytes(p), C.ulong(len(p))); errCode != successCode {
+	cBytes := C.CBytes(p)
+	if errCode := C._vmnet_write(v.iface, cBytes, C.ulong(len(p))); errCode != successCode {
 		return 0, maptoErr(int(errCode))
 	}
+	C.free(cBytes)
 	return len(p), nil
 }
 
@@ -182,16 +229,28 @@ const (
 )
 
 //export packetsAvailable
-func packetsAvailable(eventType uint32, pckAvailable uint64) {
+func packetsAvailable(eventType uint32, n uint64) {
 	// VMNet tells us how many packages we can expect to be able to read from the interface.
-	if EventType(eventType) == packetAvailableEvent {
-		for i := 0; i < int(pckAvailable); i++ {
-			bytes, err := vmnetPtr.read()
-			if err != nil {
-				log.Error().Err(err).Msg("reading vmnet")
-				// go about our bussiness
-			}
-			vmnetPtr.Event <- bytes
+	if EventType(eventType) != packetAvailableEvent {
+		return
+	}
+	for remainder := int(n); remainder > 0; {
+		// cap the number of puckets we read in a go
+		batch := min(remainder, batchSize)
+		packets, err := vmnetPtr.read(batch)
+		if err != nil {
+			log.Error().Err(err).Msg("reading vmnet")
+			// go about our bussiness
+		}
+		if len(packets) == 0 {
+			break
+		}
+		remainder -= len(packets)
+
+		select {
+		case vmnetPtr.Event <- packets:
+		default:
+			log.Warn().Err(err).Msg("nothing burger")
 		}
 	}
 }

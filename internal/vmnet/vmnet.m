@@ -3,9 +3,11 @@
 
 const int errCallback        = 3000;
 const int errPacketCountZero = 4000;
+static dispatch_queue_t if_q;
 
 int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *mtu_size,
-  char* start_addr, char* end_addr, char* subnet_mask, uint32_t operation_mode, bool isolation, bool debug) {
+  char* start_addr, char* end_addr, char* subnet_mask, char* mac_address,
+  uint32_t operation_mode, bool isolation, bool debug) {
   xpc_object_t interface_desc = xpc_dictionary_create(NULL, NULL, 0);
 
   xpc_dictionary_set_string(
@@ -24,6 +26,12 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
     interface_desc,
     vmnet_subnet_mask_key,
     subnet_mask
+  );
+
+  xpc_dictionary_set_string(
+    interface_desc,
+    vmnet_mac_address_key,
+    mac_address
   );
 
   xpc_dictionary_set_uint64(
@@ -66,6 +74,7 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
   __block const char *vmnet_subnet_mask = NULL;
   __block const char *vmnet_dhcp_range_start = NULL;
   __block const char *vmnet_dhcp_range_end = NULL;
+  __block const char *vmnet_mac_addr = NULL;
 
   _interface = vmnet_start_interface(
     interface_desc,
@@ -104,13 +113,19 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
           vmnet_subnet_mask_key
         ));
 
-        printf("/////////////////VMNET/////////////////\n");
-        printf("/// Start address:   %s   ///\n", vmnet_dhcp_range_start);
-        printf("/// End address:     %s ///\n", vmnet_dhcp_range_end);
-        printf("/// Subnet mask:     %s  ///\n", vmnet_subnet_mask);
-        printf("/// MTU:             %d           ///\n", (int)vmnet_mtu_size);
-        printf("/// Max packet size: %d           ///\n", (int)vmnet_max_packet_size);
-        printf("///////////////////////////////////////\n");
+        vmnet_mac_addr = strdup(xpc_dictionary_get_string(
+          interface_param,
+          vmnet_mac_address_key
+        ));
+
+        printf("/////////////////VMNET////////////////////\n");
+        printf("/// Start address:   %s      ///\n", vmnet_dhcp_range_start);
+        printf("/// End address:     %s    ///\n", vmnet_dhcp_range_end);
+        printf("/// Subnet mask:     %s     ///\n", vmnet_subnet_mask);
+        printf("/// MAC:             %s ///\n", vmnet_mac_addr);
+        printf("/// MTU:             %d              ///\n", (int)vmnet_mtu_size);
+        printf("/// Max packet size: %d              ///\n", (int)vmnet_max_packet_size);
+        printf("//////////////////////////////////////////\n");
 
         free((char*)vmnet_dhcp_range_start);
         free((char*)vmnet_dhcp_range_end);
@@ -123,17 +138,16 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
   dispatch_semaphore_wait(interface_start_semaphore, DISPATCH_TIME_FOREVER);
 
   if (interface_status != VMNET_SUCCESS || _interface == NULL) {
+    dispatch_release(interface_start_queue);
+    dispatch_release(interface_start_semaphore);
 		return interface_status;
   }
-
-  dispatch_release(interface_start_queue);
-  xpc_release(interface_desc);
 
   *interface = _interface;
   *max_packet_size = vmnet_max_packet_size;
   *mtu_size = vmnet_mtu_size;
 
-  dispatch_queue_t if_q = dispatch_queue_create("io.vmnet.packet.avilable", 0);
+  if_q = dispatch_queue_create("io.vmnet.packet.available", 0);
 
   // Setup callback, so we have an event driven way of reading packets instead of burning CPU cycles.
   vmnet_return_t event_callback_start = vmnet_interface_set_event_callback(
@@ -154,9 +168,15 @@ int _vmnet_start(interface_ref *interface, uint64_t *max_packet_size, uint64_t *
   });
 
   if (event_callback_start != VMNET_SUCCESS) {
+    dispatch_release(interface_start_queue);
+    dispatch_release(interface_start_semaphore);
+    dispatch_release(if_q);
     return errCallback;
   }
 
+  xpc_release(interface_desc);
+  dispatch_release(interface_start_queue);
+  dispatch_release(interface_start_semaphore);
   return VMNET_SUCCESS;
 }
 
@@ -179,6 +199,8 @@ int _vmnet_stop(interface_ref interface) {
   }
 
   dispatch_release(stop_queue);
+  dispatch_release(stop_semaphore);
+  dispatch_release(if_q);
   return status;
 }
 
@@ -198,35 +220,36 @@ int _vmnet_write(interface_ref interface, void *bytes, size_t bytes_size) {
   int packets_count = packets.vm_pkt_iovcnt;
   vmnet_return_t status = vmnet_write(interface, &packets, &packets_count);
 
-  free(bytes);
-
   return status;
 }
 
-int _vmnet_read(interface_ref interface, uint64_t max_packet_size, void **bytes, size_t *bytes_size) {
-  struct iovec packets_iovec = {
-    .iov_base = malloc(max_packet_size),
-    .iov_len = max_packet_size,
-  };
+int _vmnet_read(
+  interface_ref interface,
+  uint64_t max_packet_size,
+  void *buffer,
+  size_t packet_size,
+  int packets_count,
+  int *out_packets_read,
+  size_t *out_sizes
+) {
+  struct vmpktdesc packets[packets_count];
+  struct iovec iovecs[packets_count];
 
-  struct vmpktdesc packets = {
-    .vm_pkt_size = max_packet_size,
-    .vm_pkt_iov = &packets_iovec,
-    .vm_pkt_iovcnt = 1,
-    .vm_flags = 0,
-  };
-
-  int packets_count = 1;
-  vmnet_return_t status = vmnet_read(interface, &packets, &packets_count);
-
-  *bytes = packets.vm_pkt_iov->iov_base;
-  *bytes_size = packets.vm_pkt_size;
-
-  free(packets_iovec.iov_base);
-
-  if (packets_count < 1) {
-    return errPacketCountZero;
+  uint8_t *base = (uint8_t*)buffer;
+  for (int i = 0; i < packets_count; i++) {
+    iovecs[i].iov_base = base + i * packet_size;
+    iovecs[i].iov_len  = packet_size;
+    packets[i].vm_pkt_size = packet_size;
+    packets[i].vm_pkt_iov = &iovecs[i];
+    packets[i].vm_pkt_iovcnt = 1;
+    packets[i].vm_flags = 0;
   }
 
+  int count = packets_count;
+  vmnet_return_t status = vmnet_read(interface, packets, &count);
+  *out_packets_read = count;
+  for (int i = 0; i < count; i++) {
+    out_sizes[i] = packets[i].vm_pkt_size;
+  }
   return status;
 }
